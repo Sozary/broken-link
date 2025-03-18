@@ -1,125 +1,81 @@
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
-import requests
-from bs4 import BeautifulSoup
-from urllib.parse import urljoin, urlparse
-import concurrent.futures
+from celery.result import AsyncResult
+from sse_starlette.sse import EventSourceResponse
+import redis
 import json
-import os
+import asyncio
+import uuid  # ✅ Import UUID for custom task ID
+
+# Import the Celery app and task
+from celery_config import celery_app
+from tasks import crawl_website  # ✅ Import the Celery task
 
 app = FastAPI()
 
-DOMAIN = "https://blog.infotourisme.net"
-JSON_FILE = "broken_links.json"
-visited_links = set()
-broken_links = {}
+# Redis client for storing streaming results
+redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
 
 
-# Allow CORS for frontend access
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Change to specific domains in production
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+@app.post("/scan")
+async def start_scan(data: dict):
+    """Start a new scan task with a custom UUID task_id."""
+    url = data.get("url")
+    if not url:
+        return JSONResponse(status_code=400, content={"error": "URL is required"})
+    
+    task_id = str(uuid.uuid4())  # ✅ Generate UUID for task_id
+    crawl_website.apply_async(args=[task_id, url], task_id=task_id)  # ✅ Pass task_id explicitly
+
+    return {"task_id": task_id}
 
 
-def load_results():
-    """Load broken links from JSON file if available."""
-    global broken_links
-    if os.path.exists(JSON_FILE):
-        with open(JSON_FILE, "r", encoding="utf-8") as f:
-            try:
-                broken_links = json.load(f)
-            except json.JSONDecodeError:
-                broken_links = {}
+@app.get("/status/{task_id}")
+async def get_status(task_id: str):
+    """Retrieve Celery task status from Redis and Celery."""
+    task = AsyncResult(task_id, app=celery_app)
+
+    # ✅ Ensure we fetch the correct Celery-stored metadata
+    redis_key = f"celery-task-meta-{task_id}"
+    task_result = redis_client.get(redis_key)
+
+    if task_result:
+        task_data = json.loads(task_result)
+        return {"task_id": task_id, "status": task_data.get("status"), "result": task_data.get("result")}
+    
+    return {"task_id": task_id, "status": task.status}
 
 
-def save_results():
-    """Save broken links to a JSON file."""
-    with open(JSON_FILE, "w", encoding="utf-8") as f:
-        json.dump(broken_links, f, indent=4, ensure_ascii=False)
-    print(f"Results saved to {JSON_FILE}")
+@app.get("/stream/{task_id}")
+async def stream_results(task_id: str):
+    """Retrieve all past results first, then stream live updates if task is still running."""
+    
+    # ✅ Get stored results from Redis
+    past_results = redis_client.lrange(task_id, 0, -1)
+    task = AsyncResult(task_id, app=celery_app)
 
+    if task.state in ["SUCCESS", "FAILURE", "REVOKED"]:
+        # ✅ If task is already finished, return all results immediately
+        return JSONResponse(content={"task_id": task_id, "results": [json.loads(r) for r in past_results]})
 
-def is_internal_link(url):
-    """Check if the link belongs to the same domain."""
-    return urlparse(url).netloc == urlparse(DOMAIN).netloc or not urlparse(url).netloc
+    async def event_generator():
+        """Stream new results until task is completed."""
+        
+        # ✅ Send past results once, don't stream them
+        if past_results:
+            yield f"data: {json.dumps({'stored_results': [json.loads(r) for r in past_results]})}\n\n"
+            redis_client.delete(task_id)  # ✅ Clear stored results after sending
 
+        # ✅ Start live streaming new results
+        while True:
+            result = redis_client.lpop(task_id)  # Get new result if available
+            if result:
+                yield f"data: {result}\n\n"
+            
+            task = AsyncResult(task_id, app=celery_app)
+            if task.state in ["SUCCESS", "FAILURE", "REVOKED"]:  # ✅ Stop streaming when task completes
+                break
 
-def is_valid_link(url):
-    """Exclude mailto, javascript, and empty links."""
-    return not url.startswith(("mailto:", "javascript:", "#"))
+            await asyncio.sleep(1)  # ✅ Prevent busy loop
 
-
-def check_link(url, referrer):
-    """Check if a link is broken and store its referrer."""
-    try:
-        response = requests.head(url, allow_redirects=True, timeout=5)
-        if response.status_code >= 400:
-            print(f"[BROKEN] {url} (from {referrer}) - Status: {response.status_code}")
-            if url not in broken_links:
-                broken_links[url] = {"status": response.status_code, "referrers": []}
-            if referrer not in broken_links[url]["referrers"]:
-                broken_links[url]["referrers"].append(referrer)
-    except requests.RequestException as e:
-        print(f"[ERROR] {url} (from {referrer}) - Exception: {e}")
-        if url not in broken_links:
-            broken_links[url] = {"status": "ERROR", "referrers": []}
-        if referrer not in broken_links[url]["referrers"]:
-            broken_links[url]["referrers"].append(referrer)
-
-
-def crawl_website(url):
-    """Crawl the website recursively to find broken links."""
-    if url in visited_links:
-        return
-    visited_links.add(url)
-
-    try:
-        response = requests.get(url, timeout=5)
-        if response.status_code >= 400:
-            return
-
-        soup = BeautifulSoup(response.text, "html.parser")
-        links = [a.get("href") for a in soup.find_all("a", href=True)]
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-            futures = []
-            for link in links:
-                full_link = urljoin(url, link)
-                if is_internal_link(full_link) and is_valid_link(full_link) and full_link not in visited_links:
-                    futures.append(executor.submit(check_link, full_link, url))
-                    futures.append(executor.submit(crawl_website, full_link))
-            concurrent.futures.wait(futures)
-    except requests.RequestException:
-        pass
-
-
-@app.get("/")
-async def index():
-    """Basic route to test the API."""
-    return {"message": "Broken Link Checker API is running!"}
-
-
-@app.get("/data")
-async def get_data():
-    """Return broken links as JSON."""
-    return JSONResponse(content=broken_links)
-
-
-@app.get("/crawl")
-async def run_crawler():
-    """Trigger website crawling and return the latest results."""
-    load_results()
-    crawl_website(DOMAIN)
-    save_results()
-    return {"message": "Crawling completed", "broken_links": broken_links}
-
-
-# Load existing data before starting
-load_results()
-crawl_website(DOMAIN)
-save_results()
+    return EventSourceResponse(event_generator())
