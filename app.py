@@ -1,10 +1,9 @@
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from celery.result import AsyncResult
-from sse_starlette.sse import EventSourceResponse
+from fastapi.middleware.cors import CORSMiddleware
 import redis
 import json
-import asyncio
 import uuid  # ✅ Import UUID for custom task ID
 
 # Import the Celery app and task
@@ -13,19 +12,28 @@ from tasks import crawl_website  # ✅ Import the Celery task
 
 app = FastAPI()
 
-# Redis client for storing streaming results
+# ✅ Configure CORS (change allowed origins to match frontend domain)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Change to ["http://localhost:3000"] for security
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Redis client for storing results
 redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
 
 
 @app.post("/scan")
 async def start_scan(data: dict):
-    """Start a new scan task with a custom UUID task_id."""
+    """Start a new scan task with a unique task_id."""
     url = data.get("url")
     if not url:
         return JSONResponse(status_code=400, content={"error": "URL is required"})
     
-    task_id = str(uuid.uuid4())  # ✅ Generate UUID for task_id
-    crawl_website.apply_async(args=[task_id, url], task_id=task_id)  # ✅ Pass task_id explicitly
+    task_id = str(uuid.uuid4())  # ✅ Generate a unique task ID
+    crawl_website.apply_async(args=[task_id, url], task_id=task_id)  # ✅ Assign task_id
 
     return {"task_id": task_id}
 
@@ -35,7 +43,7 @@ async def get_status(task_id: str):
     """Retrieve Celery task status from Redis and Celery."""
     task = AsyncResult(task_id, app=celery_app)
 
-    # ✅ Ensure we fetch the correct Celery-stored metadata
+    # ✅ Fetch the Celery task metadata from Redis
     redis_key = f"celery-task-meta-{task_id}"
     task_result = redis_client.get(redis_key)
 
@@ -46,36 +54,12 @@ async def get_status(task_id: str):
     return {"task_id": task_id, "status": task.status}
 
 
-@app.get("/stream/{task_id}")
-async def stream_results(task_id: str):
-    """Retrieve all past results first, then stream live updates if task is still running."""
-    
-    # ✅ Get stored results from Redis
-    past_results = redis_client.lrange(task_id, 0, -1)
-    task = AsyncResult(task_id, app=celery_app)
+@app.get("/results/{task_id}")
+async def get_results(task_id: str):
+    """Retrieve all results stored in Redis for the given task_id."""
+    past_results = redis_client.lrange(task_id, 0, -1)  # Get all stored results
 
-    if task.state in ["SUCCESS", "FAILURE", "REVOKED"]:
-        # ✅ If task is already finished, return all results immediately
-        return JSONResponse(content={"task_id": task_id, "results": [json.loads(r) for r in past_results]})
+    if not past_results:
+        return JSONResponse(content={"task_id": task_id, "results": [], "message": "No results found yet."})
 
-    async def event_generator():
-        """Stream new results until task is completed."""
-        
-        # ✅ Send past results once, don't stream them
-        if past_results:
-            yield f"data: {json.dumps({'stored_results': [json.loads(r) for r in past_results]})}\n\n"
-            redis_client.delete(task_id)  # ✅ Clear stored results after sending
-
-        # ✅ Start live streaming new results
-        while True:
-            result = redis_client.lpop(task_id)  # Get new result if available
-            if result:
-                yield f"data: {result}\n\n"
-            
-            task = AsyncResult(task_id, app=celery_app)
-            if task.state in ["SUCCESS", "FAILURE", "REVOKED"]:  # ✅ Stop streaming when task completes
-                break
-
-            await asyncio.sleep(1)  # ✅ Prevent busy loop
-
-    return EventSourceResponse(event_generator())
+    return JSONResponse(content={"task_id": task_id, "results": [json.loads(r) for r in past_results]})
