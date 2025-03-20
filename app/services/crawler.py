@@ -1,4 +1,5 @@
-from celery_config import celery_app
+from celery import shared_task
+from app.core.celery_app import celery_app
 import httpx
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
@@ -6,53 +7,21 @@ import redis
 import json
 import asyncio
 import logging
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from webdriver_manager.chrome import ChromeDriverManager
+from app.utils.selenium_manager import SeleniumManager
+from app.utils.url_utils import normalize_url, get_headers
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # Redis client for storing results
 redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
-
-# Global WebDriver instance
 webdriver_instance = None
-
-def get_webdriver():
-    """Create or reuse a headless Chrome WebDriver instance."""
-    global webdriver_instance
-    if webdriver_instance is None:
-        logging.info("Initializing new WebDriver...")
-        options = Options()
-        options.add_argument("--headless=new")  # Ensure headless mode
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_argument("--incognito")
-        options.add_argument("--window-size=1920,1080")
-        options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36")
-
-        service = Service(ChromeDriverManager().install())
-        webdriver_instance = webdriver.Chrome(service=service, options=options)
-    
-    return webdriver_instance
-
-def close_webdriver():
-    """Close the WebDriver instance when all tasks are completed."""
-    global webdriver_instance
-    if webdriver_instance is not None:
-        logging.info("Closing WebDriver...")
-        webdriver_instance.quit()
-        webdriver_instance = None
 
 @celery_app.task(name="tasks.crawl_website")
 def crawl_website(task_id, base_url):
     """Crawl a website and check for broken links with parallel requests."""
     asyncio.run(async_crawl_website(task_id, base_url))  # Run async crawler inside Celery task
-    close_webdriver()  # Ensure WebDriver is closed after task completion
+    SeleniumManager.close()  # Ensure WebDriver is closed after task completion
     return {"status": "completed"}
 
 async def async_crawl_website(task_id, base_url):
@@ -155,7 +124,7 @@ async def check_link_with_selenium(url):
     
     logging.info(f"Checking URL with Selenium: {url}")
     
-    driver = get_webdriver()  # Get or reuse WebDriver instance
+    driver = SeleniumManager.get_instance()  # Get or reuse WebDriver instance
 
     status_code = "error"
     final_url = url
@@ -199,20 +168,3 @@ async def check_external_link(task_id, url, parent_url):
         "details": details
     })
     redis_client.rpush(task_id, result_data)
-
-def normalize_url(url):
-    """Normalize URLs by removing trailing slashes and lowercasing."""
-    parsed_url = urlparse(url)
-    return f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}".rstrip('/').lower()
-
-def get_headers():
-    """Return headers mimicking a browser to avoid bot detection."""
-    return {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Connection": "keep-alive",
-        "Referer": "https://www.google.com/",
-        "Upgrade-Insecure-Requests": "1",
-    }
