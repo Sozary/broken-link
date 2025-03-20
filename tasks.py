@@ -26,7 +26,7 @@ def get_webdriver():
     if webdriver_instance is None:
         logging.info("Initializing new WebDriver...")
         options = Options()
-        options.add_argument("--headless")  # ✅ Use the new headless mode
+        options.add_argument("--headless=new")  # ✅ Ensure headless mode
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-gpu")
         options.add_argument("--disable-dev-shm-usage")
@@ -37,6 +37,7 @@ def get_webdriver():
 
         service = Service(ChromeDriverManager().install())
         webdriver_instance = webdriver.Chrome(service=service, options=options)
+    
     return webdriver_instance
 
 def close_webdriver():
@@ -66,7 +67,7 @@ async def async_crawl_website(task_id, base_url):
 
             # ✅ Run requests in parallel
             tasks = [fetch_and_process_url(client, task_id, url, parent, visited_urls, to_visit, checked_external, base_url) for url, parent in batch]
-            await asyncio.gather(*tasks)
+            await asyncio.gather(*tasks, return_exceptions=True)  # ✅ Continue even if some requests fail
 
 async def fetch_and_process_url(client, task_id, url, parent_url, visited_urls, to_visit, checked_external, base_url):
     """Fetch URL, process links, and check for broken links while logging details."""
@@ -77,24 +78,26 @@ async def fetch_and_process_url(client, task_id, url, parent_url, visited_urls, 
 
     logging.info(f"Checking URL: {url} (Parent: {parent_url})")
 
-    try:
-        response = await client.get(url)
-        status_code = response.status_code
-        final_url = normalize_url(str(response.url))
-        visited_urls.add(final_url)
+    status_code, final_url, details = await check_link(client, url)
 
-        # ✅ Store result with parent info
-        result_data = {
-            "url": final_url,
-            "status": status_code,
-            "type": "internal",
-            "parent": parent_url
-        }
-        redis_client.rpush(task_id, json.dumps(result_data))
+    # ✅ Ensure final_url is always a string for JSON serialization
+    final_url = str(final_url)
 
-        logging.info(f"Response {status_code} from {url}")
+    # ✅ Store result with parent info
+    result_data = {
+        "url": final_url,
+        "status": status_code,
+        "type": "internal",
+        "parent": parent_url,
+        "details": details
+    }
+    redis_client.rpush(task_id, json.dumps(result_data))
 
-        if status_code == 200:
+    logging.info(f"Response {status_code} from {url}")
+
+    if status_code == 200:
+        try:
+            response = await client.get(url)
             soup = BeautifulSoup(response.text, "html.parser")
             for link in soup.find_all("a", href=True):
                 abs_url = normalize_url(urljoin(base_url, link["href"]))
@@ -107,24 +110,56 @@ async def fetch_and_process_url(client, task_id, url, parent_url, visited_urls, 
                     if abs_url not in checked_external:
                         checked_external.add(abs_url)
                         await check_external_link(task_id, abs_url, url)
+        except Exception as e:
+            logging.error(f"Error processing HTML from {url}: {e}")
+            redis_client.rpush(task_id, json.dumps({
+                "url": url,
+                "status": "error",
+                "type": "internal",
+                "parent": parent_url,
+                "details": f"Failed to parse HTML: {e}"
+            }))
 
-    except httpx.HTTPStatusError as e:
-        logging.error(f"HTTP Error {e.response.status_code} for {url}: {e.response.text}")
-        redis_client.rpush(task_id, json.dumps({"url": url, "status": "error", "type": "internal", "parent": parent_url}))
-
-    except httpx.RequestError as e:
-        logging.error(f"Request Error for {url}: {e}")
-        redis_client.rpush(task_id, json.dumps({"url": url, "status": "error", "type": "internal", "parent": parent_url}))
-
-async def check_external_link(task_id, url, parent_url):
-    """Check external links using a shared Selenium WebDriver instance."""
+async def check_link(client, url):
+    """Try checking the link with HEAD, then GET, and finally Selenium if needed."""
     
-    logging.info(f"Checking external URL: {url} (Parent: {parent_url})")
+    headers = get_headers()
+
+    try:
+        response = await client.head(url, headers=headers, follow_redirects=True)
+        logging.info(f"HTTP Request: HEAD {url} -> {response.status_code}")
+
+        if response.status_code not in [400, 403, 405]:  # ✅ If HEAD works, return status
+            return response.status_code, str(response.url), "Checked with HEAD"
+
+        logging.warning(f"HEAD failed for {url}, falling back to GET...")
+        response = await client.get(url, headers=headers, follow_redirects=True)
+        logging.info(f"HTTP Request: GET {url} -> {response.status_code}")
+
+        # ✅ If GET request also fails, trigger Selenium
+        if response.status_code in [400, 403, 405]:  
+            logging.warning(f"GET also failed for {url}, falling back to Selenium...")
+            return await check_link_with_selenium(url)
+
+        return response.status_code, str(response.url), "Checked with GET"
+
+    except Exception as e:
+        logging.error(f"HTTP request failed for {url}: {e}")
+
+    # ✅ If both HEAD and GET fail, use Selenium
+    logging.warning(f"Both HEAD and GET failed for {url}, using Selenium...")
+    return await check_link_with_selenium(url)
+
+async def check_link_with_selenium(url):
+    """Check links using Selenium as a last resort."""
+    
+    logging.info(f"Checking URL with Selenium: {url}")
     
     driver = get_webdriver()  # ✅ Get or reuse WebDriver instance
 
     status_code = "error"
     final_url = url
+    details = "Unknown error"
 
     try:
         driver.get(url)
@@ -136,13 +171,33 @@ async def check_external_link(task_id, url, parent_url):
         driver.implicitly_wait(5)
 
         # If the page loaded successfully, assume status 200
-        status_code = "200 OK (Loaded)"
-    
+        status_code = 200
+        details = "Page loaded successfully"
+
     except Exception as e:
         logging.error(f"Error fetching {url}: {e}")
+        details = str(e)
+
+    return status_code, str(final_url), details  # ✅ Convert URL to string
+
+async def check_external_link(task_id, url, parent_url):
+    """Check external links using all available methods."""
     
-    # Store result in Redis
-    result_data = json.dumps({"url": final_url, "status": status_code, "type": "external", "parent": parent_url})
+    logging.info(f"Checking external URL: {url} (Parent: {parent_url})")
+    
+    status_code, final_url, details = await check_link(httpx.AsyncClient(), url)
+
+    # ✅ Ensure final_url is a string for Redis storage
+    final_url = str(final_url)
+
+    # ✅ Store result in Redis
+    result_data = json.dumps({
+        "url": final_url,
+        "status": status_code,
+        "type": "external",
+        "parent": parent_url,
+        "details": details
+    })
     redis_client.rpush(task_id, result_data)
 
 def normalize_url(url):
