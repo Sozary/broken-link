@@ -1,18 +1,20 @@
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
-from celery.result import AsyncResult
 from fastapi.middleware.cors import CORSMiddleware
+from sse_starlette.sse import EventSourceResponse
+from celery.result import AsyncResult
 import redis
 import json
-import uuid  # ✅ Import UUID for custom task ID
+import uuid
+import asyncio
 
 # Import the Celery app and task
 from celery_config import celery_app
-from tasks import crawl_website  # ✅ Import the Celery task
+from tasks import crawl_website  # Import the Celery task
 
 app = FastAPI()
 
-# ✅ Configure CORS (change allowed origins to match frontend domain)
+# Configure CORS (change allowed origins to match frontend domain)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Change to ["http://localhost:3000"] for security
@@ -32,8 +34,8 @@ async def start_scan(data: dict):
     if not url:
         return JSONResponse(status_code=400, content={"error": "URL is required"})
     
-    task_id = str(uuid.uuid4())  # ✅ Generate a unique task ID
-    crawl_website.apply_async(args=[task_id, url], task_id=task_id)  # ✅ Assign task_id
+    task_id = str(uuid.uuid4())  # Generate a unique task ID
+    crawl_website.apply_async(args=[task_id, url], task_id=task_id)  # Assign task_id
 
     return {"task_id": task_id}
 
@@ -43,7 +45,7 @@ async def get_status(task_id: str):
     """Retrieve Celery task status from Redis and Celery."""
     task = AsyncResult(task_id, app=celery_app)
 
-    # ✅ Fetch the Celery task metadata from Redis
+    # Fetch the Celery task metadata from Redis
     redis_key = f"celery-task-meta-{task_id}"
     task_result = redis_client.get(redis_key)
 
@@ -63,3 +65,25 @@ async def get_results(task_id: str):
         return JSONResponse(content={"task_id": task_id, "results": [], "message": "No results found yet."})
 
     return JSONResponse(content={"task_id": task_id, "results": [json.loads(r) for r in past_results]})
+
+
+@app.get("/status/stream/{task_id}")
+async def status_stream(task_id: str):
+    """Stream task status updates to the client using Server-Sent Events (SSE)."""
+    async def event_generator():
+        last_status = None
+
+        while True:
+            task = AsyncResult(task_id, app=celery_app)
+            new_status = task.status
+
+            if new_status != last_status:  # Only send updates if status changes
+                last_status = new_status
+                yield f"data: {json.dumps({'task_id': task_id, 'status': new_status})}\n\n"
+
+            if new_status in ["SUCCESS", "FAILURE", "REVOKED"]:  # Stop if task is done
+                break
+
+            await asyncio.sleep(1)  # Prevent busy loop
+
+    return EventSourceResponse(event_generator())

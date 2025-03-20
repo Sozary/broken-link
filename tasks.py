@@ -26,7 +26,7 @@ def get_webdriver():
     if webdriver_instance is None:
         logging.info("Initializing new WebDriver...")
         options = Options()
-        options.add_argument("--headless=new")  # ✅ Ensure headless mode
+        options.add_argument("--headless=new")  # Ensure headless mode
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-gpu")
         options.add_argument("--disable-dev-shm-usage")
@@ -51,8 +51,8 @@ def close_webdriver():
 @celery_app.task(name="tasks.crawl_website")
 def crawl_website(task_id, base_url):
     """Crawl a website and check for broken links with parallel requests."""
-    asyncio.run(async_crawl_website(task_id, base_url))  # ✅ Run async crawler inside Celery task
-    close_webdriver()  # ✅ Ensure WebDriver is closed after task completion
+    asyncio.run(async_crawl_website(task_id, base_url))  # Run async crawler inside Celery task
+    close_webdriver()  # Ensure WebDriver is closed after task completion
     return {"status": "completed"}
 
 async def async_crawl_website(task_id, base_url):
@@ -62,12 +62,12 @@ async def async_crawl_website(task_id, base_url):
 
     async with httpx.AsyncClient(headers=get_headers(), follow_redirects=True, timeout=10) as client:
         while to_visit:
-            batch = to_visit[:10]  # ✅ Process 10 URLs in parallel
+            batch = to_visit[:10]  # Process 10 URLs in parallel
             to_visit = to_visit[10:]
 
-            # ✅ Run requests in parallel
+            # Run requests in parallel
             tasks = [fetch_and_process_url(client, task_id, url, parent, visited_urls, to_visit, checked_external, base_url) for url, parent in batch]
-            await asyncio.gather(*tasks, return_exceptions=True)  # ✅ Continue even if some requests fail
+            await asyncio.gather(*tasks, return_exceptions=True)  # Continue even if some requests fail
 
 async def fetch_and_process_url(client, task_id, url, parent_url, visited_urls, to_visit, checked_external, base_url):
     """Fetch URL, process links, and check for broken links while logging details."""
@@ -80,10 +80,10 @@ async def fetch_and_process_url(client, task_id, url, parent_url, visited_urls, 
 
     status_code, final_url, details = await check_link(client, url)
 
-    # ✅ Ensure final_url is always a string for JSON serialization
+    # Ensure final_url is always a string for JSON serialization
     final_url = str(final_url)
 
-    # ✅ Store result with parent info
+    # Store result with parent info
     result_data = {
         "url": final_url,
         "status": status_code,
@@ -129,14 +129,14 @@ async def check_link(client, url):
         response = await client.head(url, headers=headers, follow_redirects=True)
         logging.info(f"HTTP Request: HEAD {url} -> {response.status_code}")
 
-        if response.status_code not in [400, 403, 405]:  # ✅ If HEAD works, return status
+        if response.status_code not in [400, 403, 405]:  # If HEAD works, return status
             return response.status_code, str(response.url), "Checked with HEAD"
 
         logging.warning(f"HEAD failed for {url}, falling back to GET...")
         response = await client.get(url, headers=headers, follow_redirects=True)
         logging.info(f"HTTP Request: GET {url} -> {response.status_code}")
 
-        # ✅ If GET request also fails, trigger Selenium
+        # If GET request also fails, trigger Selenium
         if response.status_code in [400, 403, 405]:  
             logging.warning(f"GET also failed for {url}, falling back to Selenium...")
             return await check_link_with_selenium(url)
@@ -146,7 +146,7 @@ async def check_link(client, url):
     except Exception as e:
         logging.error(f"HTTP request failed for {url}: {e}")
 
-    # ✅ If both HEAD and GET fail, use Selenium
+    # If both HEAD and GET fail, use Selenium
     logging.warning(f"Both HEAD and GET failed for {url}, using Selenium...")
     return await check_link_with_selenium(url)
 
@@ -155,7 +155,7 @@ async def check_link_with_selenium(url):
     
     logging.info(f"Checking URL with Selenium: {url}")
     
-    driver = get_webdriver()  # ✅ Get or reuse WebDriver instance
+    driver = get_webdriver()  # Get or reuse WebDriver instance
 
     status_code = "error"
     final_url = url
@@ -178,7 +178,7 @@ async def check_link_with_selenium(url):
         logging.error(f"Error fetching {url}: {e}")
         details = str(e)
 
-    return status_code, str(final_url), details  # ✅ Convert URL to string
+    return status_code, str(final_url), details  # Convert URL to string
 
 async def check_external_link(task_id, url, parent_url):
     """Check external links using all available methods."""
@@ -187,10 +187,10 @@ async def check_external_link(task_id, url, parent_url):
     
     status_code, final_url, details = await check_link(httpx.AsyncClient(), url)
 
-    # ✅ Ensure final_url is a string for Redis storage
+    # Ensure final_url is a string for Redis storage
     final_url = str(final_url)
 
-    # ✅ Store result in Redis
+    # Store result in Redis
     result_data = json.dumps({
         "url": final_url,
         "status": status_code,
