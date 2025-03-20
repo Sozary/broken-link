@@ -8,24 +8,29 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379/0
       - CORS_ORIGINS=["*"]
-    depends_on:
-      - redis
-    volumes:
-      - .:/app
+      - PYTHONUNBUFFERED=1
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
     networks:
       - app-network
 
-  celery_worker:
+  worker:
     build:
       context: .
-      dockerfile: Dockerfile.celery
+      dockerfile: Dockerfile.celery  # ✅ Use dedicated Celery Dockerfile
     environment:
       - REDIS_URL=redis://redis:6379/0
-    depends_on:
-      - redis
-      - web
-    volumes:
-      - .:/app
+      - PYTHONUNBUFFERED=1
+    command: celery -A app.core.celery_app worker --loglevel=info --concurrency=4 --max-tasks-per-child=100
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
     networks:
       - app-network
 
@@ -35,6 +40,12 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
     networks:
       - app-network
 
@@ -43,4 +54,4 @@ volumes:
 
 networks:
   app-network:
-    driver: bridge 
+    driver: bridge
