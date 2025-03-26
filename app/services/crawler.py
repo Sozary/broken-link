@@ -1,3 +1,4 @@
+import ssl
 from celery import shared_task
 from app.core.celery_app import celery_app
 import httpx
@@ -15,13 +16,14 @@ import datetime
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# Configure Redis client with SSL
-redis_url = settings.REDIS_URL
-if redis_url.startswith('rediss://'):
-    redis_url = f"{redis_url}?ssl_cert_reqs=none"
+connection_pool = redis.ConnectionPool.from_url(
+    settings.REDIS_URL,
+    decode_responses=True,
+    connection_class=redis.SSLConnection,
+    ssl_cert_reqs=ssl.CERT_NONE
+)
 
-# Redis client for storing results
-redis_client = redis.Redis.from_url(redis_url, decode_responses=True)
+redis_client = redis.Redis(connection_pool=connection_pool)
 
 def store_error(task_id, url, parent_url, error_msg, link_type="internal"):
     """Helper function to store errors in Redis."""
@@ -35,7 +37,7 @@ def store_error(task_id, url, parent_url, error_msg, link_type="internal"):
     redis_client.rpush(task_id, json.dumps(error_data))
     logging.error(f"Error stored for {url}: {error_msg}")
 
-@celery_app.task(name="app.services.crawler.crawl_website", bind=True, max_retries=3)
+@celery_app.task(name="app.services.crawler.crawl_website", bind=True)
 def crawl_website(self, task_id, base_url):
     """Crawl a website and check for broken links with parallel requests."""
     try:
@@ -53,7 +55,7 @@ def crawl_website(self, task_id, base_url):
         )
 
         # Verify Firefox installation before starting
-        if not SeleniumManager.check_firefox_installation():
+        if not SeleniumManager.check_chrome_installation():
             raise RuntimeError("Firefox is not properly installed")
             
         asyncio.run(async_crawl_website(task_id, base_url))
@@ -90,10 +92,6 @@ def crawl_website(self, task_id, base_url):
                 'date_done': datetime.datetime.utcnow().isoformat()
             }
         )
-        
-        # Retry the task if it's a temporary error
-        if isinstance(e, (httpx.ConnectError, httpx.TimeoutException)):
-            self.retry(exc=e, countdown=5)
         
         return {"status": "error", "error": str(e)}
 
