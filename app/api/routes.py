@@ -17,7 +17,14 @@ from app.api.schemas import (
 from app.services.crawler import crawl_website
 
 router = APIRouter()
-redis_client = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
+
+# Configure Redis client with SSL
+redis_client = redis.Redis.from_url(
+    settings.REDIS_URL,
+    decode_responses=True,
+    ssl=True,
+    ssl_cert_reqs=None
+)
 
 @router.get("/health")
 async def health_check():
