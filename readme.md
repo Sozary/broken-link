@@ -170,3 +170,18 @@ More at /doc
    - Check worker logs
    - Verify queue configuration
    - Monitor Redis for results
+
+## 📝 TODO
+
+### Firefox/Selenium Performance Optimizations 🚀
+
+1. **Driver Startup Optimization**
+
+   - [ ] Implement Firefox driver pre-warming
+   - [ ] Configure Firefox profile caching
+
+2. **Page Load Speed**
+
+   - [ ] Implement page load timeout optimization
+   - [ ] Add resource blocking for unnecessary content
+   - [ ] Configure Firefox performance settings
