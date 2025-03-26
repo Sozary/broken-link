@@ -68,7 +68,7 @@ class SeleniumManager:
             )
             
             # Set reasonable timeouts
-            driver.set_page_load_timeout(30)
+            driver.set_page_load_timeout(60)
             driver.implicitly_wait(10)
             
             logging.info("WebDriver initialized successfully")

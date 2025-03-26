@@ -4,6 +4,8 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 import json
 import asyncio
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.common.exceptions import TimeoutException
 import logging
 from app.utils.redis_client import get_redis_client
 from app.utils.selenium_manager import SeleniumManager
@@ -197,6 +199,14 @@ async def check_link_with_selenium(url):
     try:
         driver = SeleniumManager.get_instance()
         driver.get(url)
+        try:
+            WebDriverWait(driver, 60).until(
+                lambda d: d.execute_script("return document.readyState") == "complete"
+            )
+            logging.info(f"Document readyState = complete for {url}")
+        except TimeoutException:
+            logging.warning(f"Document.readyState != complete after 60s for {url}")
+
         await asyncio.sleep(3)  # Give more time for the page to load
         
         final_url = driver.current_url
