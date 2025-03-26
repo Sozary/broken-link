@@ -20,7 +20,7 @@ class SeleniumManager:
             return cls._instances[pid]
 
     @classmethod
-    def check_chrome_installation(cls):
+    def check_firefox_installation(cls):
         """Check if Firefox is installed and working."""
         try:
             firefox_path = "/usr/bin/firefox"

@@ -1,29 +1,20 @@
-import ssl
-from celery import shared_task
 from app.core.celery_app import celery_app
 import httpx
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
-import redis
 import json
 import asyncio
 import logging
+from app.utils.redis_client import get_redis_client
 from app.utils.selenium_manager import SeleniumManager
 from app.utils.url_utils import normalize_url, get_headers
-from app.core.config import settings
 import datetime
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-connection_pool = redis.ConnectionPool.from_url(
-    settings.REDIS_URL,
-    decode_responses=True,
-    connection_class=redis.SSLConnection,
-    ssl_cert_reqs=ssl.CERT_NONE
-)
+redis_client = get_redis_client()
 
-redis_client = redis.Redis(connection_pool=connection_pool)
 
 def store_error(task_id, url, parent_url, error_msg, link_type="internal"):
     """Helper function to store errors in Redis."""
@@ -55,7 +46,7 @@ def crawl_website(self, task_id, base_url):
         )
 
         # Verify Firefox installation before starting
-        if not SeleniumManager.check_chrome_installation():
+        if not SeleniumManager.check_firefox_installation():
             raise RuntimeError("Firefox is not properly installed")
             
         asyncio.run(async_crawl_website(task_id, base_url))

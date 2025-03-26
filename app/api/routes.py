@@ -1,9 +1,6 @@
-import ssl
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import JSONResponse
 from sse_starlette.sse import EventSourceResponse
 from celery.result import AsyncResult
-import redis
 import json
 import uuid
 import asyncio
@@ -12,23 +9,14 @@ import logging
 from app.core.config import settings
 from app.core.celery_app import celery_app
 from app.api.schemas import (
-    ScanRequest, ScanResponse, LinkCheckResult,
+    ScanRequest, ScanResponse,
     TaskStatus, ResultsResponse
 )
 from app.services.crawler import crawl_website
-
+from app.utils.redis_client import get_redis_client
 router = APIRouter()
 
-# Configure Redis client with SSL if needed
-
-connection_pool = redis.ConnectionPool.from_url(
-    settings.REDIS_URL,
-    decode_responses=True,
-    connection_class=redis.SSLConnection,
-    ssl_cert_reqs=ssl.CERT_NONE
-)
-
-redis_client = redis.Redis(connection_pool=connection_pool)
+redis_client = get_redis_client()
 
 
 @router.get("/health")
