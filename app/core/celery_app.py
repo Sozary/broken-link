@@ -11,15 +11,9 @@ celery_app = Celery(
 # Configure SSL for Redis
 celery_app.conf.update(
     broker_use_ssl={
-        'ssl_cert_reqs': None,
-        'ssl_ca_certs': None,
-        'ssl_certfile': None,
-        'ssl_keyfile': None,
+        'ssl_cert_reqs': None
     },
     redis_backend_use_ssl={
-        'ssl_cert_reqs': None,
-        'ssl_ca_certs': None,
-        'ssl_certfile': None,
-        'ssl_keyfile': None,
+        'ssl_cert_reqs': None
     }
 ) 
