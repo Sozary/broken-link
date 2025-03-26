@@ -1,19 +1,14 @@
 from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from webdriver_manager.chrome import ChromeDriverManager
-from selenium.webdriver.chrome.service import Service as ChromeService
-from selenium.webdriver.common.by import By
-from selenium.common.exceptions import TimeoutException
-import os
+from selenium.webdriver.firefox.options import Options
+from selenium.webdriver.firefox.service import Service
 import logging
+import os
 import threading
-import time
+import subprocess
 
 class SeleniumManager:
     _instances = {}
     _lock = threading.Lock()
-    _initialization_timeout = 30  # seconds
 
     def __new__(cls):
         pid = os.getpid()
@@ -24,155 +19,64 @@ class SeleniumManager:
                 cls._instances[pid] = instance
             return cls._instances[pid]
 
-    def __init__(self):
-        pass
+    @classmethod
+    def check_chrome_installation(cls):
+        """Check if Firefox is installed and working."""
+        try:
+            firefox_path = "/usr/bin/firefox"
+            if not os.path.exists(firefox_path):
+                raise FileNotFoundError("Firefox not found at /usr/bin/firefox")
+
+            firefox_version = subprocess.check_output(
+                [firefox_path, "--version"], stderr=subprocess.STDOUT
+            ).decode()
+            logging.info(f"Firefox version: {firefox_version.strip()}")
+            return True
+        except Exception as e:
+            logging.error(f"Error checking Firefox installation: {str(e)}")
+            return False
 
     @classmethod
     def get_instance(cls):
         instance = cls()
-        if instance._driver is None or not instance._is_driver_alive():
-            instance._create_new_driver()
+        if instance._driver is None:
+            instance._driver = instance._create_driver()
         return instance._driver
-
-    def _is_driver_alive(self):
-        """Check if the current WebDriver instance is still alive."""
-        if self._driver is None:
-            return False
-        try:
-            # Try to get the current window handle
-            self._driver.current_window_handle
-            return True
-        except:
-            return False
-
-    def _create_new_driver(self):
-        """Create a new WebDriver instance with cleanup of old resources."""
-        # Clean up old driver if it exists
-        if self._driver is not None:
-            try:
-                self._driver.quit()
-            except:
-                pass
-            finally:
-                self._driver = None
-
-        # Create new driver with timeout
-        start_time = time.time()
-        while time.time() - start_time < self._initialization_timeout:
-            try:
-                self._driver = self._create_driver()
-                return
-            except Exception as e:
-                logging.warning(f"Failed to create driver: {str(e)}. Retrying...")
-                if self._driver:
-                    try:
-                        self._driver.quit()
-                    except:
-                        pass
-                time.sleep(1)
-        
-        raise TimeoutException(f"Failed to initialize WebDriver within {self._initialization_timeout} seconds")
-
-    @classmethod
-    def check_chrome_installation(cls):
-        """Check if Chrome is properly installed and available."""
-        try:
-            import subprocess
-            chrome_version = subprocess.check_output(
-                ['/usr/bin/google-chrome', '--version'],
-                stderr=subprocess.STDOUT
-            ).decode()
-            logging.info(f"Chrome version: {chrome_version.strip()}")
-            return True
-        except Exception as e:
-            logging.error(f"Chrome check failed: {str(e)}")
-            return False
 
     def _create_driver(self):
         """Create a new WebDriver instance."""
         logging.info(f"Initializing new WebDriver for process {os.getpid()}...")
         
-        # Check Chrome installation first
-        if not self.check_chrome_installation():
-            raise RuntimeError("Chrome is not properly installed")
-        
         options = Options()
-        
-        # Create unique directories for this instance
-        pid = os.getpid()
-        timestamp = int(time.time() * 1000)
-        cache_dir = f"/home/celery/.cache/selenium/chrome-{pid}-{timestamp}"
-        data_dir = f"/tmp/chrome-data/chrome-{pid}-{timestamp}"
-        
-        # Ensure directories exist and have correct permissions
-        for directory in [cache_dir, data_dir]:
-            try:
-                os.makedirs(directory, mode=0o755, exist_ok=True)
-                os.chmod(directory, 0o755)  # Ensure directory is readable and executable
-            except Exception as e:
-                logging.error(f"Failed to create directory {directory}: {e}")
-                raise
-        
-        # Chrome options
-        options.add_argument(f"--user-data-dir={data_dir}")
-        options.add_argument(f"--disk-cache-dir={cache_dir}")
-        options.add_argument("--headless=new")
+        options.add_argument("--headless")
         options.add_argument("--no-sandbox")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--disable-software-rasterizer")
-        options.add_argument("--disable-extensions")
-        options.add_argument("--window-size=1920,1080")
-        
-        # Additional stability options
-        options.add_argument("--disable-background-networking")
-        options.add_argument("--disable-background-timer-throttling")
-        options.add_argument("--disable-client-side-phishing-detection")
-        options.add_argument("--disable-default-apps")
-        options.add_argument("--disable-hang-monitor")
-        options.add_argument("--disable-popup-blocking")
-        options.add_argument("--disable-prompt-on-repost")
-        options.add_argument("--disable-sync")
-        options.add_argument("--metrics-recording-only")
-        options.add_argument("--no-first-run")
-        options.add_argument("--safebrowsing-disable-auto-update")
-        options.add_argument("--password-store=basic")
-        
-        # Privacy settings
-        options.add_argument("--incognito")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        
-        # Set user agent
-        options.add_argument(f"--user-agent={self._get_user_agent()}")
+        options.add_argument("--width=1920")
+        options.add_argument("--height=1080")
+        options.set_preference("dom.webdriver.enabled", False)
+        options.set_preference("media.navigator.permission.disabled", True)
+        options.set_preference("network.http.use-cache", False)
         
         try:
-            # Use webdriver_manager to get the correct ChromeDriver
-            service = ChromeService(ChromeDriverManager().install())
-            driver = webdriver.Chrome(service=service, options=options)
+            service = Service(
+                executable_path="/usr/local/bin/geckodriver",
+                log_path=os.devnull
+            )
             
-            # Set timeouts
+            driver = webdriver.Firefox(
+                options=options,
+                service=service
+            )
+            
+            # Set reasonable timeouts
             driver.set_page_load_timeout(30)
-            driver.set_script_timeout(30)
             driver.implicitly_wait(10)
             
             logging.info("WebDriver initialized successfully")
             return driver
             
         except Exception as e:
-            logging.error(f"Failed to initialize WebDriver: {str(e)}")
-            logging.error(f"Exception type: {type(e).__name__}")
-            logging.error(f"Full exception details: {repr(e)}")
-            # Clean up the directories
-            try:
-                import shutil
-                shutil.rmtree(cache_dir, ignore_errors=True)
-                shutil.rmtree(data_dir, ignore_errors=True)
-            except Exception as cleanup_error:
-                logging.error(f"Failed to clean up directories: {cleanup_error}")
+            logging.error(f"Failed to initialize WebDriver: {e}")
             raise
-
-    def _get_user_agent(self):
-        return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.6998.165 Safari/537.36"
 
     @classmethod
     def close(cls):
@@ -182,10 +86,9 @@ class SeleniumManager:
                 instance = cls._instances[pid]
                 if instance._driver is not None:
                     try:
-                        logging.info(f"Closing WebDriver for process {pid}...")
                         instance._driver.quit()
                     except Exception as e:
-                        logging.error(f"Error closing WebDriver: {str(e)}")
+                        logging.error(f"Error closing WebDriver: {e}")
                     finally:
                         instance._driver = None
                         del cls._instances[pid]
