@@ -22,8 +22,8 @@ if settings.REDIS_URL.startswith('rediss://'):
 
 celery_app = Celery(
     "broken_link_checker",
-    broker=settings.REDIS_URL,
-    backend=settings.REDIS_URL,
+    broker=redis_url,
+    backend=redis_url,
     include=["app.services.crawler"]
 )
 
