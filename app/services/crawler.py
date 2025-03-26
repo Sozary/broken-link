@@ -9,12 +9,18 @@ import asyncio
 import logging
 from app.utils.selenium_manager import SeleniumManager
 from app.utils.url_utils import normalize_url, get_headers
+from app.core.config import settings
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
+# Configure Redis client with SSL
+redis_url = settings.REDIS_URL
+if redis_url.startswith('rediss://'):
+    redis_url = f"{redis_url}?ssl_cert_reqs=none"
+
 # Redis client for storing results
-redis_client = redis.Redis(host='redis', port=6379, db=0, decode_responses=True)
+redis_client = redis.Redis.from_url(redis_url, decode_responses=True)
 
 def store_error(task_id, url, parent_url, error_msg, link_type="internal"):
     """Helper function to store errors in Redis."""
