@@ -10,6 +10,7 @@ import logging
 from app.utils.selenium_manager import SeleniumManager
 from app.utils.url_utils import normalize_url, get_headers
 from app.core.config import settings
+import datetime
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -34,21 +35,53 @@ def store_error(task_id, url, parent_url, error_msg, link_type="internal"):
     redis_client.rpush(task_id, json.dumps(error_data))
     logging.error(f"Error stored for {url}: {error_msg}")
 
-@celery_app.task(name="app.services.crawler.crawl_website")
-def crawl_website(task_id, base_url):
+@celery_app.task(name="app.services.crawler.crawl_website", bind=True)
+def crawl_website(self, task_id, base_url):
     """Crawl a website and check for broken links with parallel requests."""
     try:
+        # Initialize task status
+        redis_client.set(f"celery-task-meta-{task_id}", json.dumps({
+            "task_id": task_id,
+            "status": "STARTED",
+            "result": None,
+            "traceback": None,
+            "children": [],
+            "date_done": None
+        }))
+
         # Verify Chrome installation before starting
         if not SeleniumManager.check_chrome_installation():
             raise RuntimeError("Chrome is not properly installed")
             
         asyncio.run(async_crawl_website(task_id, base_url))
         SeleniumManager.close()
+
+        # Update task status to completed
+        redis_client.set(f"celery-task-meta-{task_id}", json.dumps({
+            "task_id": task_id,
+            "status": "SUCCESS",
+            "result": {"status": "completed"},
+            "traceback": None,
+            "children": [],
+            "date_done": datetime.datetime.utcnow().isoformat()
+        }))
+        
         return {"status": "completed"}
     except Exception as e:
         error_msg = f"Fatal error in crawl_website task: {str(e)}"
         logging.error(error_msg)
         store_error(task_id, base_url, None, error_msg)
+        
+        # Update task status to failed
+        redis_client.set(f"celery-task-meta-{task_id}", json.dumps({
+            "task_id": task_id,
+            "status": "FAILURE",
+            "result": None,
+            "traceback": str(e),
+            "children": [],
+            "date_done": datetime.datetime.utcnow().isoformat()
+        }))
+        
         return {"status": "error", "error": str(e)}
 
 async def async_crawl_website(task_id, base_url):
