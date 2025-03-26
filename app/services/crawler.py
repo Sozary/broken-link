@@ -35,19 +35,22 @@ def store_error(task_id, url, parent_url, error_msg, link_type="internal"):
     redis_client.rpush(task_id, json.dumps(error_data))
     logging.error(f"Error stored for {url}: {error_msg}")
 
-@celery_app.task(name="app.services.crawler.crawl_website", bind=True)
+@celery_app.task(name="app.services.crawler.crawl_website", bind=True, max_retries=3)
 def crawl_website(self, task_id, base_url):
     """Crawl a website and check for broken links with parallel requests."""
     try:
         # Initialize task status
-        redis_client.set(f"celery-task-meta-{task_id}", json.dumps({
-            "task_id": task_id,
-            "status": "STARTED",
-            "result": None,
-            "traceback": None,
-            "children": [],
-            "date_done": None
-        }))
+        self.update_state(
+            state='STARTED',
+            meta={
+                'task_id': task_id,
+                'status': 'STARTED',
+                'result': None,
+                'traceback': None,
+                'children': [],
+                'date_done': None
+            }
+        )
 
         # Verify Chrome installation before starting
         if not SeleniumManager.check_chrome_installation():
@@ -57,14 +60,17 @@ def crawl_website(self, task_id, base_url):
         SeleniumManager.close()
 
         # Update task status to completed
-        redis_client.set(f"celery-task-meta-{task_id}", json.dumps({
-            "task_id": task_id,
-            "status": "SUCCESS",
-            "result": {"status": "completed"},
-            "traceback": None,
-            "children": [],
-            "date_done": datetime.datetime.utcnow().isoformat()
-        }))
+        self.update_state(
+            state='SUCCESS',
+            meta={
+                'task_id': task_id,
+                'status': 'SUCCESS',
+                'result': {"status": "completed"},
+                'traceback': None,
+                'children': [],
+                'date_done': datetime.datetime.utcnow().isoformat()
+            }
+        )
         
         return {"status": "completed"}
     except Exception as e:
@@ -73,14 +79,21 @@ def crawl_website(self, task_id, base_url):
         store_error(task_id, base_url, None, error_msg)
         
         # Update task status to failed
-        redis_client.set(f"celery-task-meta-{task_id}", json.dumps({
-            "task_id": task_id,
-            "status": "FAILURE",
-            "result": None,
-            "traceback": str(e),
-            "children": [],
-            "date_done": datetime.datetime.utcnow().isoformat()
-        }))
+        self.update_state(
+            state='FAILURE',
+            meta={
+                'task_id': task_id,
+                'status': 'FAILURE',
+                'result': None,
+                'traceback': str(e),
+                'children': [],
+                'date_done': datetime.datetime.utcnow().isoformat()
+            }
+        )
+        
+        # Retry the task if it's a temporary error
+        if isinstance(e, (httpx.ConnectError, httpx.TimeoutException)):
+            self.retry(exc=e, countdown=5)
         
         return {"status": "error", "error": str(e)}
 

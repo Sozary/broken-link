@@ -35,5 +35,15 @@ celery_app.conf.update(
     result_expires=3600,  # Results expire after 1 hour
     task_routes={
         'app.services.crawler.crawl_website': {'queue': 'default'}
-    }
+    },
+    # Add these settings for proper result handling
+    result_backend_transport_options={
+        'global_keyprefix': 'celery-task-meta-',
+        'retry_policy': {
+            'timeout': 5.0,
+            'max_retries': 3,
+        }
+    },
+    task_ignore_result=False,
+    task_store_errors_for_even_if_ignored=True
 ) 
