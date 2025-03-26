@@ -48,6 +48,17 @@ class SeleniumManager:
         logging.info(f"Initializing new WebDriver for process {os.getpid()}...")
         
         options = Options()
+        options.set_preference("browser.cache.disk.enable", False)
+        options.set_preference("browser.cache.memory.enable", False)
+        options.set_preference("browser.cache.offline.enable", False)
+        options.set_preference("network.http.use-cache", False)
+        options.set_preference("browser.startup.homepage_override.mstone", "ignore")
+        options.set_preference("startup.homepage_welcome_url.additional", "about:blank")
+        options.set_preference("browser.download.folderList", 2)
+        options.set_preference("browser.download.dir", "/tmp")
+        options.set_preference("browser.helperApps.neverAsk.saveToDisk", "text/csv")
+        options.set_preference("pdfjs.disabled", True)
+
         options.add_argument("--headless")
         options.add_argument("--no-sandbox")
         options.add_argument("--width=1920")

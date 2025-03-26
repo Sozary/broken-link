@@ -48,5 +48,24 @@ celery_app.conf.update(
     broker_connection_timeout=30,
     broker_pool_limit=10,
     broker_heartbeat=10,
-    broker_ping_interval=30
+    broker_ping_interval=30,
+    task_routes={
+        'app.services.crawler.crawl_website': {'queue': 'default'},
+        'app.services.crawler.check_link_with_selenium': {'queue': 'selenium'},
+    },
+    task_default_queue='default',
+    task_default_exchange='default',
+    task_default_routing_key='default',
+    task_queues={
+        'default': {
+            'exchange': 'default',
+            'routing_key': 'default',
+            'queue_arguments': {'x-max-priority': 10},
+        },
+        'selenium': {
+            'exchange': 'selenium',
+            'routing_key': 'selenium',
+            'queue_arguments': {'x-max-priority': 10},
+        },
+    },
 ) 
