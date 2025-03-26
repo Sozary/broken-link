@@ -1,3 +1,4 @@
+import ssl
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from sse_starlette.sse import EventSourceResponse
@@ -17,7 +18,18 @@ from app.api.schemas import (
 from app.services.crawler import crawl_website
 
 router = APIRouter()
-redis_client = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
+
+# Configure Redis client with SSL if needed
+
+connection_pool = redis.ConnectionPool.from_url(
+    settings.REDIS_URL,
+    decode_responses=True,
+    connection_class=redis.SSLConnection,
+    ssl_cert_reqs=ssl.CERT_NONE
+)
+
+redis_client = redis.Redis(connection_pool=connection_pool)
+
 
 @router.get("/health")
 async def health_check():

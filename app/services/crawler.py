@@ -1,3 +1,4 @@
+import ssl
 from celery import shared_task
 from app.core.celery_app import celery_app
 import httpx
@@ -9,12 +10,20 @@ import asyncio
 import logging
 from app.utils.selenium_manager import SeleniumManager
 from app.utils.url_utils import normalize_url, get_headers
+from app.core.config import settings
+import datetime
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# Redis client for storing results
-redis_client = redis.Redis(host='redis', port=6379, db=0, decode_responses=True)
+connection_pool = redis.ConnectionPool.from_url(
+    settings.REDIS_URL,
+    decode_responses=True,
+    connection_class=redis.SSLConnection,
+    ssl_cert_reqs=ssl.CERT_NONE
+)
+
+redis_client = redis.Redis(connection_pool=connection_pool)
 
 def store_error(task_id, url, parent_url, error_msg, link_type="internal"):
     """Helper function to store errors in Redis."""
@@ -28,21 +37,62 @@ def store_error(task_id, url, parent_url, error_msg, link_type="internal"):
     redis_client.rpush(task_id, json.dumps(error_data))
     logging.error(f"Error stored for {url}: {error_msg}")
 
-@celery_app.task(name="app.services.crawler.crawl_website")
-def crawl_website(task_id, base_url):
+@celery_app.task(name="app.services.crawler.crawl_website", bind=True)
+def crawl_website(self, task_id, base_url):
     """Crawl a website and check for broken links with parallel requests."""
     try:
-        # Verify Chrome installation before starting
+        # Initialize task status
+        self.update_state(
+            state='STARTED',
+            meta={
+                'task_id': task_id,
+                'status': 'STARTED',
+                'result': None,
+                'traceback': None,
+                'children': [],
+                'date_done': None
+            }
+        )
+
+        # Verify Firefox installation before starting
         if not SeleniumManager.check_chrome_installation():
-            raise RuntimeError("Chrome is not properly installed")
+            raise RuntimeError("Firefox is not properly installed")
             
         asyncio.run(async_crawl_website(task_id, base_url))
         SeleniumManager.close()
+
+        # Update task status to completed
+        self.update_state(
+            state='SUCCESS',
+            meta={
+                'task_id': task_id,
+                'status': 'SUCCESS',
+                'result': {"status": "completed"},
+                'traceback': None,
+                'children': [],
+                'date_done': datetime.datetime.utcnow().isoformat()
+            }
+        )
+        
         return {"status": "completed"}
     except Exception as e:
         error_msg = f"Fatal error in crawl_website task: {str(e)}"
         logging.error(error_msg)
         store_error(task_id, base_url, None, error_msg)
+        
+        # Update task status to failed
+        self.update_state(
+            state='FAILURE',
+            meta={
+                'task_id': task_id,
+                'status': 'FAILURE',
+                'result': None,
+                'traceback': str(e),
+                'children': [],
+                'date_done': datetime.datetime.utcnow().isoformat()
+            }
+        )
+        
         return {"status": "error", "error": str(e)}
 
 async def async_crawl_website(task_id, base_url):
