@@ -32,6 +32,10 @@ def store_error(task_id, url, parent_url, error_msg, link_type="internal"):
 def crawl_website(task_id, base_url):
     """Crawl a website and check for broken links with parallel requests."""
     try:
+        # Verify Chrome installation before starting
+        if not SeleniumManager.check_chrome_installation():
+            raise RuntimeError("Chrome is not properly installed")
+            
         asyncio.run(async_crawl_website(task_id, base_url))
         SeleniumManager.close()
         return {"status": "completed"}
@@ -152,21 +156,19 @@ async def check_link_with_selenium(url):
     try:
         driver = SeleniumManager.get_instance()
         driver.get(url)
-        logging.info(f"Loaded page: {url}")
+        await asyncio.sleep(3)  # Give more time for the page to load
+        
         final_url = driver.current_url
-
-        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        driver.implicitly_wait(5)
-
-        status_code = 200
-        details = "Page loaded successfully"
+        status_code = 200 if driver.current_url else "error"
+        details = "Page loaded successfully" if status_code == 200 else "Failed to load page"
+        
+        logging.info(f"Selenium check completed for {url} -> {status_code}")
+        return status_code, str(final_url), details
 
     except Exception as e:
         error_msg = f"Selenium error for {url}: {str(e)}"
         logging.error(error_msg)
-        details = error_msg
-
-    return status_code, str(final_url), details
+        return "error", str(url), error_msg
 
 async def check_external_link(task_id, url, parent_url):
     """Check external links using all available methods."""
