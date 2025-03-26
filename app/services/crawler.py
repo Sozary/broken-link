@@ -32,6 +32,10 @@ def store_error(task_id, url, parent_url, error_msg, link_type="internal"):
 def crawl_website(task_id, base_url):
     """Crawl a website and check for broken links with parallel requests."""
     try:
+        # Verify Chrome installation before starting
+        if not SeleniumManager.check_chrome_installation():
+            raise RuntimeError("Chrome is not properly installed")
+            
         asyncio.run(async_crawl_website(task_id, base_url))
         SeleniumManager.close()
         return {"status": "completed"}

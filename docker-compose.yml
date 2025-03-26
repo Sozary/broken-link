@@ -3,13 +3,14 @@ version: '3.8'
 services:
   web:
     build: .
+    platform: linux/amd64
     ports:
       - "8000:8000"
     environment:
       - REDIS_URL=redis://redis:6379/0
       - CORS_ORIGINS=["*"]
       - PYTHONUNBUFFERED=1
-    command: uvicorn main:app --host 0.0.0.0 --port 8000
+    command: python3 -m uvicorn main:app --host 0.0.0.0 --port 8000
     deploy:
       resources:
         limits:
@@ -21,7 +22,8 @@ services:
   worker:
     build:
       context: .
-      dockerfile: Dockerfile.celery  # ✅ Use dedicated Celery Dockerfile
+      dockerfile: Dockerfile.celery
+    platform: linux/amd64
     environment:
       - REDIS_URL=redis://redis:6379/0
       - PYTHONUNBUFFERED=1
@@ -31,6 +33,9 @@ services:
         limits:
           cpus: '2'
           memory: 2G
+    shm_size: 2g
+    tmpfs:
+      - /tmp:exec,mode=1777
     networks:
       - app-network
 
