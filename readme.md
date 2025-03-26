@@ -14,17 +14,16 @@ A powerful and efficient web crawler that checks for broken links on websites us
   - [Environment Variables](#environment-variables)
   - [Building and Running](#building-and-running)
 - [🔄 How It Works](#-how-it-works)
-  - [Initial Request 📥](#initial-request-)
-  - [Crawling Process 🕷️](#crawling-process-)
-  - [Link Processing 🔗](#link-processing-)
-  - [Result Storage 💾](#result-storage-)
+  - [Initial Request 📥](#initial-request-📥)
+  - [Crawling Process 🕷️](#crawling-process-🕷️)
+  - [Link Processing 🔗](#link-processing-🔗)
+  - [Result Storage 💾](#result-storage-💾)
 - [📊 API Endpoints](#-api-endpoints)
   - [POST /scan](#post-scan)
   - [GET /results/{task_id}](#get-resultstask_id)
 - [🚀 Performance Considerations](#-performance-considerations)
 - [🔧 Troubleshooting](#-troubleshooting)
 - [📝 TODO](#-todo)
-
 
 ## 🌟 Features
 
