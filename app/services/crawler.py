@@ -52,9 +52,9 @@ def crawl_website(self, task_id, base_url):
             }
         )
 
-        # Verify Chrome installation before starting
-        if not SeleniumManager.check_chrome_installation():
-            raise RuntimeError("Chrome is not properly installed")
+        # Verify Firefox installation before starting
+        if not SeleniumManager.check_firefox_installation():
+            raise RuntimeError("Firefox is not properly installed")
             
         asyncio.run(async_crawl_website(task_id, base_url))
         SeleniumManager.close()

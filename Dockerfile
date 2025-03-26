@@ -6,7 +6,7 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     VIRTUAL_ENV=/opt/venv \
-    PORT=10000
+    PORT=8000
 
 # Install Python dependencies
 RUN apt-get update && \

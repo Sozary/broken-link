@@ -37,6 +37,23 @@ class SeleniumManager:
             return False
 
     @classmethod
+    def check_firefox_installation(cls):
+        """Check if Firefox is installed and working."""
+        try:
+            firefox_path = "/usr/bin/firefox"
+            if not os.path.exists(firefox_path):
+                raise FileNotFoundError("Firefox not found at /usr/bin/firefox")
+
+            firefox_version = subprocess.check_output(
+                [firefox_path, "--version"], stderr=subprocess.STDOUT
+            ).decode()
+            logging.info(f"Firefox version: {firefox_version.strip()}")
+            return True
+        except Exception as e:
+            logging.error(f"Error checking Firefox installation: {str(e)}")
+            return False
+
+    @classmethod
     def get_instance(cls):
         instance = cls()
         if instance._driver is None:
