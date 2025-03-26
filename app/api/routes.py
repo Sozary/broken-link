@@ -18,6 +18,15 @@ from app.services.crawler import crawl_website
 router = APIRouter()
 redis_client = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
 
+@router.get("/health")
+async def health_check():
+    """Health check endpoint for Render."""
+    try:
+        redis_client.ping()
+        return {"status": "healthy"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
 @router.post("/scan", response_model=ScanResponse)
 async def start_scan(data: ScanRequest):
     """Start a new scan task with a unique task_id."""
