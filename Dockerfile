@@ -5,7 +5,8 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    VIRTUAL_ENV=/opt/venv
+    VIRTUAL_ENV=/opt/venv \
+    PORT=10000
 
 # Install Python dependencies
 RUN apt-get update && \
@@ -36,7 +37,7 @@ RUN useradd -m appuser && chown -R appuser:appuser /app /opt/venv
 USER appuser
 
 # Expose port
-EXPOSE ${PORT:-8000}
+EXPOSE ${PORT}
 
 # Command to run the application
-CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
+CMD uvicorn main:app --host 0.0.0.0 --port ${PORT}

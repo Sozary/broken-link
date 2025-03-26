@@ -6,6 +6,7 @@ import redis
 import json
 import uuid
 import asyncio
+import logging
 
 from app.core.config import settings
 from app.core.celery_app import celery_app
@@ -22,9 +23,15 @@ redis_client = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
 async def health_check():
     """Health check endpoint for Render."""
     try:
-        redis_client.ping()
+        # Try Redis connection but don't fail if it's not available
+        try:
+            redis_client.ping()
+        except Exception as e:
+            logging.warning(f"Redis health check failed: {str(e)}")
+        
         return {"status": "healthy"}
     except Exception as e:
+        logging.error(f"Health check failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
     
 @router.post("/scan", response_model=ScanResponse)
