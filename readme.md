@@ -2,6 +2,30 @@
 
 A powerful and efficient web crawler that checks for broken links on websites using a multi-queue system with Selenium support for JavaScript-heavy pages.
 
+## 📚 Table of Contents
+
+- [🌟 Features](#-features)
+- [🏗️ Architecture](#️-architecture)
+  - [System Components](#system-components)
+  - [Queue System](#queue-system)
+  - [Caching System](#caching-system)
+- [🛠️ Setup](#️-setup)
+  - [Prerequisites](#prerequisites)
+  - [Environment Variables](#environment-variables)
+  - [Building and Running](#building-and-running)
+- [🔄 How It Works](#-how-it-works)
+  - [Initial Request 📥](#initial-request-)
+  - [Crawling Process 🕷️](#crawling-process-)
+  - [Link Processing 🔗](#link-processing-)
+  - [Result Storage 💾](#result-storage-)
+- [📊 API Endpoints](#-api-endpoints)
+  - [POST /scan](#post-scan)
+  - [GET /results/{task_id}](#get-resultstask_id)
+- [🚀 Performance Considerations](#-performance-considerations)
+- [🔧 Troubleshooting](#-troubleshooting)
+- [📝 TODO](#-todo)
+
+
 ## 🌟 Features
 
 - 🔄 Asynchronous crawling with parallel requests
